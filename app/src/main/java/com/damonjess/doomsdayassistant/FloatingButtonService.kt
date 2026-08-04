@@ -1,10 +1,8 @@
 package com.damonjess.doomsdayassistant
 
 import android.app.Service
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
@@ -14,7 +12,6 @@ import android.view.*
 import android.widget.ImageButton
 import android.widget.PopupMenu
 import android.widget.Toast
-import androidx.core.content.ContextCompat
 
 class FloatingButtonService : Service() {
 
@@ -26,27 +23,11 @@ class FloatingButtonService : Service() {
     companion object {
         const val MODE_ANALYZE = "analyze"
         const val MODE_SAVE_ARENA = "save_arena"
-        const val EXTRA_RESULT_CODE = "result_code"
-        const val EXTRA_DATA = "data"
-    }
-
-    private var resultCode: Int = -1
-    private var data: Intent? = null
-
-    private val receiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == "SET_PROJECTION_DATA") {
-                resultCode = intent.getIntExtra("result_code", -1)
-                data = intent.getParcelableExtra("data")
-            }
-        }
     }
 
     override fun onCreate() {
         super.onCreate()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-
-        ContextCompat.registerReceiver(this, receiver, IntentFilter("SET_PROJECTION_DATA"), ContextCompat.RECEIVER_NOT_EXPORTED)
 
         floatingView = LayoutInflater.from(this).inflate(R.layout.floating_button, null)
         val button = floatingView?.findViewById<ImageButton>(R.id.floating_button)
@@ -139,22 +120,19 @@ class FloatingButtonService : Service() {
     }
 
     private fun triggerCapture() {
-        if (resultCode == -1 || data == null) {
+        val stateCode = ScreenCaptureState.resultCode
+        val stateData = ScreenCaptureState.data
+        if (stateCode == -1 || stateData == null) {
             Toast.makeText(this, "⚠️ Start the assistant from the app first!", Toast.LENGTH_SHORT).show()
             return
         }
 
         val captureIntent = Intent(this, ScreenCaptureService::class.java).apply {
             putExtra(ScreenCaptureService.EXTRA_MODE, mode)
-            putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, resultCode)
-            putExtra(ScreenCaptureService.EXTRA_DATA, data)
+            putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, stateCode)
+            putExtra(ScreenCaptureService.EXTRA_DATA, stateData)
         }
         startService(captureIntent)
-    }
-
-    fun setMediaProjectionData(resultCode: Int, data: Intent) {
-        this.resultCode = resultCode
-        this.data = data
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -162,7 +140,6 @@ class FloatingButtonService : Service() {
     }
 
     override fun onDestroy() {
-        unregisterReceiver(receiver)
         floatingView?.let { windowManager.removeView(it) }
         super.onDestroy()
     }

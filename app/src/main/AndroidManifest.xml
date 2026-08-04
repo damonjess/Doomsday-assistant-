@@ -39,12 +39,5 @@
         <service android:name=".ResultsOverlayService"
             android:enabled="true"
             android:exported="false" />
-
-        <receiver android:name=".ProjectionDataReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="SET_PROJECTION_DATA" />
-            </intent-filter>
-        </receiver>
     </application>
 </manifest>

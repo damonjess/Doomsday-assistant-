@@ -82,6 +82,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startFloatingButton(resultCode: Int, data: Intent) {
+        ScreenCaptureState.resultCode = resultCode
+        ScreenCaptureState.data = data
         val intent = Intent(this, FloatingButtonService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
@@ -89,18 +91,6 @@ class MainActivity : AppCompatActivity() {
             startService(intent)
         }
 
-        handler.postDelayed({
-            // Access service via broadcast
-            val broadcast = Intent("SET_PROJECTION_DATA").apply {
-                putExtra("result_code", resultCode)
-                putExtra("data", data)
-                setPackage(packageName)
-            }
-            sendBroadcast(broadcast)
-        }, 500)
-
         statusText.text = "🟢 Assistant is active! Look for the floating skull."
     }
-
-    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
 }
