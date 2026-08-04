@@ -85,14 +85,13 @@ class MainActivity : AppCompatActivity() {
         } else if (requestCode == REQUEST_SCREEN_CAPTURE && resultCode == RESULT_OK && data != null) {
             Log.d("DoomsdayCapture", "Screen capture permission granted. ResultCode: $resultCode")
             
-            // Initialize MediaProjection IMMEDIATELY. Android 14+ only allows using the Intent data once.
-            val mgr = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            val projection = mgr.getMediaProjection(resultCode, data)
-            
-            ScreenCaptureState.mediaProjection?.stop()
-            ScreenCaptureState.mediaProjection = projection
+            // Save state but DON'T call getMediaProjection yet. 
+            // On Android 14+, it MUST be called after the service starts its foreground notification.
             ScreenCaptureState.resultCode = resultCode
             ScreenCaptureState.data = data
+            
+            // Start the ScreenCaptureService immediately. 
+            // It will call getMediaProjection after calling startForeground().
             
             // Start the ScreenCaptureService immediately so it stays alive
             val captureServiceIntent = Intent(this, ScreenCaptureService::class.java)

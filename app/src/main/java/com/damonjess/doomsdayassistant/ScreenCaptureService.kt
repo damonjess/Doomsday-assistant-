@@ -64,6 +64,31 @@ class ScreenCaptureService : Service() {
         val mode = intent?.getStringExtra(EXTRA_MODE) ?: MODE_ANALYZE
         Log.d("DoomsdayCapture", "Service command received. Action: ${intent?.action}, Mode: $mode")
 
+        // Lazy-init MediaProjection once per session
+        if (ScreenCaptureState.mediaProjection == null) {
+            val rc = ScreenCaptureState.resultCode
+            val d = ScreenCaptureState.data
+            if (rc == 0 || d == null) {
+                toast("⚠️ Start the assistant from the app first!")
+                stopMe()
+                return START_NOT_STICKY
+            }
+            try {
+                val mgr = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                ScreenCaptureState.mediaProjection = mgr.getMediaProjection(rc, d)
+                toast("🎥 Screen capture ready")
+            } catch (e: Exception) {
+                Log.e("DoomsdayCapture", "Failed to get MediaProjection: ${e.message}", e)
+                // Token already used, stale, or SecurityException (missing FGS type)
+                ScreenCaptureState.mediaProjection = null
+                ScreenCaptureState.resultCode = 0
+                ScreenCaptureState.data = null
+                toast("⚠️ Session expired — restart the assistant from the app")
+                stopMe()
+                return START_NOT_STICKY
+            }
+        }
+
         if (!isInitialized) {
             initProjection()
         }
@@ -77,10 +102,50 @@ class ScreenCaptureService : Service() {
                     val bitmap = captureScreen()
                     if (bitmap != null) {
                         Log.d("DoomsdayCapture", "Bitmap captured: ${bitmap.width}x${bitmap.height}")
-                        mainHandler.post {
-                            when (mode) {
-                                MODE_SAVE_ARENA -> saveHero(bitmap)
-                                else -> analyzeScreen(bitmap)
+                        
+                        when (mode) {
+                            MODE_SAVE_ARENA -> {
+                                toast("🔍 Reading stats…")
+                                val extractor = StatsExtractor(bitmap)
+                                val stats = extractor.extract()
+                                
+                                mainHandler.post {
+                                    toast("📊 Lv${stats.level} | ${stats.power} power")
+                                    val overlayIntent = Intent(this@ScreenCaptureService, HeroPickerOverlay::class.java).apply {
+                                        putExtra("level", stats.level)
+                                        putExtra("power", stats.power)
+                                        putExtra("stars", stats.stars)
+                                        putExtra("skills", stats.skillLevels.toIntArray())
+                                        putExtra("dmg", stats.dmg)
+                                        putExtra("hp", stats.hp)
+                                        putExtra("def", stats.def)
+                                        putExtra("squad", stats.squad)
+                                    }
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                        startForegroundService(overlayIntent)
+                                    } else {
+                                        startService(overlayIntent)
+                                    }
+                                }
+                            }
+                            else -> {
+                                val dispatcher = AnalysisDispatcher(this@ScreenCaptureService)
+                                val result = dispatcher.analyze(bitmap)
+                                mainHandler.post {
+                                    val overlayIntent = Intent(this@ScreenCaptureService, ResultsOverlayService::class.java).apply {
+                                        putExtra("screen_type", result.screenType.name)
+                                        putExtra("title", result.title)
+                                        putExtra("priority_score", result.priorityScore)
+                                        putStringArrayListExtra("sections_headers", ArrayList(result.sections.map { it.header }))
+                                        val itemsList = result.sections.map { it.items.joinToString("\n") }
+                                        putStringArrayListExtra("sections_items", ArrayList(itemsList))
+                                    }
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                        startForegroundService(overlayIntent)
+                                    } else {
+                                        startService(overlayIntent)
+                                    }
+                                }
                             }
                         }
                     } else {
@@ -117,6 +182,14 @@ class ScreenCaptureService : Service() {
         projection.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
                 Log.d("DoomsdayCapture", "MediaProjection session stopped")
+                
+                // The OS killed this session — fully clear state so the
+                // next attempt shows "start the assistant" instead of
+                // trying to reuse a dead token.
+                ScreenCaptureState.mediaProjection = null
+                ScreenCaptureState.resultCode = 0
+                ScreenCaptureState.data = null
+
                 isInitialized = false
                 virtualDisplay?.release()
                 virtualDisplay = null
@@ -160,41 +233,6 @@ class ScreenCaptureService : Service() {
         }
     }
 
-    private fun analyzeScreen(bitmap: Bitmap) {
-        val dispatcher = AnalysisDispatcher(this)
-        val result = dispatcher.analyze(bitmap)
-
-        val overlayIntent = Intent(this, ResultsOverlayService::class.java).apply {
-            putExtra("screen_type", result.screenType.name)
-            putExtra("title", result.title)
-            putExtra("priority_score", result.priorityScore)
-            putStringArrayListExtra("sections_headers", ArrayList(result.sections.map { it.header }))
-            val items = result.sections.map { it.items.joinToString("\n") }
-            putStringArrayListExtra("sections_items", ArrayList(items))
-        }
-        startService(overlayIntent)
-    }
-
-    private fun saveHero(bitmap: Bitmap) {
-        toast("🔍 Reading stats…")
-
-        val extractor = StatsExtractor(bitmap)
-        val stats = extractor.extract()
-
-        toast("📊 Lv${stats.level} | ${stats.power} power")
-
-        val intent = Intent(this, HeroPickerOverlay::class.java).apply {
-            putExtra("level", stats.level)
-            putExtra("power", stats.power)
-            putExtra("stars", stats.stars)
-            putExtra("skills", stats.skillLevels.toIntArray())
-            putExtra("dmg", stats.dmg)
-            putExtra("hp", stats.hp)
-            putExtra("def", stats.def)
-            putExtra("squad", stats.squad)
-        }
-        startService(intent)
-    }
 
     private fun buildNotification(): Notification {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

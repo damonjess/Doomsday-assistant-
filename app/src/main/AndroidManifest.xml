@@ -43,10 +43,20 @@
 
         <service android:name=".ResultsOverlayService"
             android:enabled="true"
-            android:exported="false" />
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="analysis_overlay" />
+        </service>
 
         <service android:name=".HeroPickerOverlay"
             android:enabled="true"
-            android:exported="false" />
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="hero_picker" />
+        </service>
     </application>
 </manifest>

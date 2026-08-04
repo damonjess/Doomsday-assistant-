@@ -3,8 +3,10 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#DD0F0F1A"
-    android:padding="16dp">
+    android:background="#EE0F0F1A"
+    android:padding="16dp"
+    android:clickable="true"
+    android:focusable="true">
 
     <TextView
         android:layout_width="wrap_content"

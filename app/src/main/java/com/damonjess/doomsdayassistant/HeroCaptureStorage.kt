@@ -58,18 +58,25 @@ class HeroCaptureStorage(context: Context) {
         roster.forEach { hero ->
             jsonArray.put(heroToJson(hero))
         }
-        return prefs.edit().putString(KEY_ROSTER, jsonArray.toString()).commit()
+        prefs.edit().putString(KEY_ROSTER, jsonArray.toString()).apply()
+        return true
     }
 
     private fun parseRoster(jsonStr: String): List<CapturedHero> {
         val roster = mutableListOf<CapturedHero>()
+        if (jsonStr == "[]") return roster
         try {
             val jsonArray = JSONArray(jsonStr)
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
-                roster.add(jsonToHero(obj))
+                try {
+                    roster.add(jsonToHero(obj))
+                } catch (e: Exception) {
+                    Log.e("DoomsdayCapture", "Failed to parse hero at index $i: ${e.message}")
+                }
             }
         } catch (e: Exception) {
+            Log.e("DoomsdayCapture", "Failed to parse roster JSON: ${e.message}")
         }
         return roster
     }
@@ -108,9 +115,9 @@ class HeroCaptureStorage(context: Context) {
             id = obj.getString("id"),
             heroId = obj.getString("heroId"),
             name = obj.getString("name"),
-            rarity = HeroRarity.valueOf(obj.getString("rarity")),
-            role = HeroRole.valueOf(obj.getString("role")),
-            faction = Faction.valueOf(obj.getString("faction")),
+            rarity = safeValueOf(obj.getString("rarity"), HeroRarity.COMMON),
+            role = safeValueOf(obj.getString("role"), HeroRole.DAMAGE),
+            faction = safeValueOf(obj.getString("faction"), Faction.SURVIVORS),
             level = obj.getInt("level"),
             stars = obj.getInt("stars"),
             power = obj.getLong("power"),
@@ -126,5 +133,13 @@ class HeroCaptureStorage(context: Context) {
             capturedAt = obj.getLong("capturedAt"),
             isMaxed = obj.optBoolean("isMaxed", false)
         )
+    }
+
+    private inline fun <reified T : Enum<T>> safeValueOf(value: String, default: T): T {
+        return try {
+            java.lang.Enum.valueOf(T::class.java, value.uppercase())
+        } catch (e: Exception) {
+            default
+        }
     }
 }

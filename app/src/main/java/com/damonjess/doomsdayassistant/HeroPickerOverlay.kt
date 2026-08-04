@@ -5,8 +5,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
 import android.os.Build
+import android.util.Log
 import android.os.IBinder
 import android.view.*
 import android.widget.*
@@ -32,7 +34,11 @@ class HeroPickerOverlay : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(NOTIF_ID, buildNotification())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(NOTIF_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(NOTIF_ID, buildNotification())
+        }
         
         val level = intent?.getIntExtra("level", 0) ?: 0
         val power = intent?.getLongExtra("power", 0) ?: 0
@@ -79,6 +85,8 @@ class HeroPickerOverlay : Service() {
                     setMargins(6, 6, 6, 6)
                 }
                 setOnClickListener {
+                    Log.d("DoomsdayCapture", "Hero selected: ${hero.name}")
+                    Toast.makeText(this@HeroPickerOverlay, "Selected: ${hero.name}", Toast.LENGTH_SHORT).show()
                     selectedHero = hero
                     for (i in 0 until grid.childCount) {
                         (grid.getChildAt(i) as Button).apply {
@@ -94,12 +102,19 @@ class HeroPickerOverlay : Service() {
         }
 
         view.findViewById<Button>(R.id.picker_save_btn).setOnClickListener {
+            Log.d("DoomsdayCapture", "Save button clicked. Selected hero: ${selectedHero?.name}")
             if (selectedHero == null) {
-                Toast.makeText(this, "Tap a hero name first!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "⚠️ Select a hero first!", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            saveHero(selectedHero!!, gs)
-            closeOverlay()
+            try {
+                saveHero(selectedHero!!, gs)
+                Toast.makeText(this, "✅ ${selectedHero?.name} saved!", Toast.LENGTH_SHORT).show()
+                closeOverlay()
+            } catch (e: Exception) {
+                Log.e("DoomsdayCapture", "Error saving hero", e)
+                Toast.makeText(this, "❌ Failed to save: ${e.message}", Toast.LENGTH_LONG).show()
+            }
         }
 
         view.findViewById<Button>(R.id.picker_cancel_btn).setOnClickListener {
@@ -112,8 +127,9 @@ class HeroPickerOverlay : Service() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             else
+                @Suppress("DEPRECATION")
                 WindowManager.LayoutParams.TYPE_PHONE,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         )
 
