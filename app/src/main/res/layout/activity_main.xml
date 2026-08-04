@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="24dp"
+    android:background="#1a1a2e"
+    android:gravity="center">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="☠️ Doomsday Assistant"
+        android:textSize="28sp"
+        android:textStyle="bold"
+        android:textColor="#e94560"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Your personal hero analyzer for Doomsday: Last Survivors"
+        android:textSize="14sp"
+        android:textColor="#a0a0a0"
+        android:layout_marginBottom="32dp"
+        android:textAlignment="center" />
+
+    <TextView
+        android:id="@+id/status_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="⏳ Assistant is inactive"
+        android:textSize="16sp"
+        android:textColor="#f39c12"
+        android:layout_marginBottom="24dp" />
+
+    <Button
+        android:id="@+id/permission_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Grant Overlay Permission"
+        android:backgroundTint="#16213e"
+        android:textColor="#ffffff"
+        android:padding="16dp"
+        android:layout_marginBottom="12dp" />
+
+    <Button
+        android:id="@+id/start_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Start Assistant"
+        android:backgroundTint="#e94560"
+        android:textColor="#ffffff"
+        android:padding="16dp"
+        android:textStyle="bold"
+        android:layout_marginBottom="12dp" />
+
+    <Button
+        android:id="@+id/arena_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="🏟️ Arena of Doom (0 heroes)"
+        android:backgroundTint="#2d5016"
+        android:textColor="#ffffff"
+        android:padding="16dp"
+        android:textStyle="bold"
+        android:layout_marginBottom="24dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="How to use:\n\n1. Grant overlay permission\n2. Start the assistant\n3. Open Doomsday: Last Survivors\n4. Go to a hero screen\n5. LONG-PRESS the floating button\n6. Select 'Save Hero to Arena'\n7. Repeat for all your heroes\n8. Tap 'Arena of Doom' to build teams"
+        android:textSize="12sp"
+        android:textColor="#888888"
+        android:layout_marginTop="8dp"
+        android:textAlignment="center"
+        android:lineSpacingMultiplier="1.4" />
+
+</LinearLayout>

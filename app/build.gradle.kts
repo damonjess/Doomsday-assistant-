@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.doomsdayassistant"
+    namespace = "com.damonjess.doomsdayassistant"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.example.doomsdayassistant"
+        applicationId = "com.damonjess.doomsdayassistant"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
@@ -58,6 +58,9 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.material)
+    implementation(libs.androidx.appcompat)
+    implementation(libs.androidx.constraintlayout)
+    implementation(libs.androidx.recyclerview)
     implementation(libs.play.services.mlkit.text.recognition)
 
     testImplementation(libs.junit)
