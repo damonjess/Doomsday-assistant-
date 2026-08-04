@@ -38,7 +38,6 @@ class FloatingButtonService : Service() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             else
-                @Suppress("DEPRECATION")
                 WindowManager.LayoutParams.TYPE_PHONE,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
@@ -127,10 +126,10 @@ class FloatingButtonService : Service() {
             return
         }
 
+        Toast.makeText(this, if (mode == MODE_SAVE_ARENA) "💾 Saving hero…" else "🔍 Analyzing…", Toast.LENGTH_SHORT).show()
+
         val captureIntent = Intent(this, ScreenCaptureService::class.java).apply {
             putExtra(ScreenCaptureService.EXTRA_MODE, mode)
-            putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, stateCode)
-            putExtra(ScreenCaptureService.EXTRA_DATA, stateData)
         }
         startService(captureIntent)
     }

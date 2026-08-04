@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Button
@@ -53,6 +52,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        updateUI()
+    }
+
     private fun updateUI() {
         val hasOverlay = Settings.canDrawOverlays(this)
         statusText.text = if (hasOverlay) "✅ Ready to start" else "⏳ Grant overlay permission"
@@ -77,20 +81,13 @@ class MainActivity : AppCompatActivity() {
         if (requestCode == REQUEST_OVERLAY) {
             updateUI()
         } else if (requestCode == REQUEST_SCREEN_CAPTURE && resultCode == RESULT_OK && data != null) {
-            startFloatingButton(resultCode, data)
+            // Reset any old projection so we get a fresh token
+            ScreenCaptureState.mediaProjection?.stop()
+            ScreenCaptureState.mediaProjection = null
+            ScreenCaptureState.resultCode = resultCode
+            ScreenCaptureState.data = data
+            startService(Intent(this, FloatingButtonService::class.java))
+            statusText.text = "🟢 Assistant is active!"
         }
-    }
-
-    private fun startFloatingButton(resultCode: Int, data: Intent) {
-        ScreenCaptureState.resultCode = resultCode
-        ScreenCaptureState.data = data
-        val intent = Intent(this, FloatingButtonService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
-        }
-
-        statusText.text = "🟢 Assistant is active! Look for the floating skull."
     }
 }

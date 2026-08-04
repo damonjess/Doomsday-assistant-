@@ -31,7 +31,7 @@ object HeroDatabase {
                 HeroSkill("Inspire", "Boosts ally ATK by 20%", HeroSkill.SkillType.PASSIVE, 2),
                 HeroSkill("Revive", "Brings back fallen ally at 40% HP", HeroSkill.SkillType.ULTIMATE, 1)
             ),
-            baseStats = HeroStats(3200, 2500, 350000, 105, 0.08f, 1.4f),
+            baseStats = HeroStats(3654, 31581, 222727, 105, 0.08f, 1.4f),
             synergies = listOf("miyamoto_doichi", "lynne", "chef"),
             counters = listOf("reaper", "witch"),
             weakAgainst = listOf("ghost", "shadow")
@@ -269,6 +269,41 @@ object HeroDatabase {
             synergies = listOf("ghost", "witch", "reaper"),
             counters = listOf("chef", "doc"),
             weakAgainst = listOf("jeb", "ash")
+        ),
+        // NEW HEROES from your screenshots
+        Hero(
+            id = "claude_le_blanc",
+            name = "Claude Le Blanc",
+            rarity = HeroRarity.LEGENDARY,
+            role = HeroRole.SUPPORT,
+            faction = Faction.SURVIVORS,
+            skills = listOf(
+                HeroSkill("Nature's Embrace", "Heal and shield allies with plant magic", HeroSkill.SkillType.ACTIVE, 1),
+                HeroSkill("Greenfield Wisdom", "Buffs team defense and regeneration", HeroSkill.SkillType.PASSIVE, 2),
+                HeroSkill("Overgrowth", "Massive AOE heal + cleanse", HeroSkill.SkillType.ULTIMATE, 1),
+                HeroSkill("Life Bloom", "Revives ally at 35% HP with regen", HeroSkill.SkillType.AWAKENED, 3)
+            ),
+            baseStats = HeroStats(5942, 35430, 322787, 95, 0.06f, 1.4f),
+            synergies = listOf("peggy", "norah", "doc"),
+            counters = listOf("witch", "reaper"),
+            weakAgainst = listOf("ghost", "shadow")
+        ),
+        Hero(
+            id = "peggy",
+            name = "Peggy",
+            rarity = HeroRarity.EPIC,
+            role = HeroRole.SUPPORT,
+            faction = Faction.SURVIVORS,
+            skills = listOf(
+                HeroSkill("Ray of Light", "Single target heal + morale boost", HeroSkill.SkillType.ACTIVE, 1),
+                HeroSkill("Zombie Hunter", "Bonus damage vs infected enemies", HeroSkill.SkillType.PASSIVE, 2),
+                HeroSkill("Hope Shines", "Full team heal + immunity buff", HeroSkill.SkillType.ULTIMATE, 1),
+                HeroSkill("Inspire", "Boosts ally ATK speed by 30%", HeroSkill.SkillType.AWAKENED, 3)
+            ),
+            baseStats = HeroStats(1667, 30539, 238210, 100, 0.08f, 1.3f),
+            synergies = listOf("claude_le_blanc", "norah", "chef"),
+            counters = listOf("reaper", "witch"),
+            weakAgainst = listOf("ghost", "shadow")
         )
     )
 
@@ -333,6 +368,13 @@ object HeroDatabase {
             strategy = "Wipe entire enemy team simultaneously with stacked AOE.",
             strength = "Devastating against clustered enemies",
             weakness = "Spreads damage too thin vs tanks"
+        ),
+        ArenaComposition(
+            name = "Healer Stack",
+            heroes = listOf("claude_le_blanc", "peggy", "norah", "miyamoto_doichi", "ammara"),
+            strategy = "Triple support keeps Miyamoto alive forever while Ammara chips away.",
+            strength = "Nearly impossible to kill, massive sustain",
+            weakness = "Very low burst damage, loses to timers"
         )
     )
 }

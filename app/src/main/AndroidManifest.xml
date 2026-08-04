@@ -39,5 +39,9 @@
         <service android:name=".ResultsOverlayService"
             android:enabled="true"
             android:exported="false" />
+
+        <service android:name=".HeroPickerOverlay"
+            android:enabled="true"
+            android:exported="false" />
     </application>
 </manifest>

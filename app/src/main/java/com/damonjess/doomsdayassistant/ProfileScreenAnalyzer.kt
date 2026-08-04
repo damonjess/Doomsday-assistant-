@@ -57,8 +57,12 @@ class ProfileScreenAnalyzer {
     }
 
     private fun extractHeroName(text: String): String {
-        val knownHeroes = listOf("Miyamoto Doichi", "Norah", "Ammara", "Park Dong-wook", "Lynne",
-            "Maddie", "Sarge", "Ghost", "Reaper", "Jeb", "Chef", "Doc", "Witch", "Ash", "Nikola", "Shadow")
+        val knownHeroes = listOf(
+            "Miyamoto Doichi", "Norah", "Ammara", "Park Dong-wook", "Lynne",
+            "Maddie", "Sarge", "Ghost", "Reaper", "Jeb", "Chef", "Doc", 
+            "Witch", "Ash", "Nikola", "Shadow",
+            "Claude Le Blanc", "Peggy"
+        )
         for (name in knownHeroes) {
             if (text.contains(name, ignoreCase = true)) return name
         }
@@ -67,7 +71,10 @@ class ProfileScreenAnalyzer {
     }
 
     private fun extractHeroTitle(text: String): String {
-        val titlePatterns = listOf("Scorched Earth Wanderer")
+        val titlePatterns = listOf(
+            "Scorched Earth Wanderer", "Reborn Guardian", 
+            "Greenfield Mentor", "Ray of Hope"
+        )
         for (title in titlePatterns) {
             if (text.contains(title, ignoreCase = true)) return title
         }
@@ -85,10 +92,10 @@ class ProfileScreenAnalyzer {
     }
 
     private fun extractStats(text: String): HeroStatsExtracted {
-        val dmgRegex = Regex("""DMG\s*[:\s]*([\d,]+)""")
-        val hpRegex = Regex("""HP\s*[:\s]*([\d,]+)""")
-        val defRegex = Regex("""DEF\s*[:\s]*([\d,]+)""")
-        val squadRegex = Regex("""Squad\s*[:\s]*([\d,]+)""")
+        val dmgRegex = Regex("""DMG\s*[:|\s]*([\d,]+)""")
+        val hpRegex = Regex("""HP\s*[:|\s]*([\d,]+)""")
+        val defRegex = Regex("""DEF\s*[:|\s]*([\d,]+)""")
+        val squadRegex = Regex("""Squad\s*[:|\s]*([\d,]+)""")
         fun parse(regex: Regex): Int {
             return regex.find(text)?.groupValues?.get(1)?.replace(",", "")?.toIntOrNull() ?: 0
         }
@@ -97,16 +104,20 @@ class ProfileScreenAnalyzer {
 
     private fun extractPower(text: String): Long {
         val regex = Regex("""([\d,]+)""")
-        val match = regex.find(text.replace(" ", ""))
-        return match?.groupValues?.get(1)?.replace(",", "")?.toLongOrNull() ?: 0
+        val matches = regex.findAll(text.replace(" ", ""))
+        // Power is the largest number in the region
+        return matches.mapNotNull { 
+            it.groupValues[1].replace(",", "").toLongOrNull() 
+        }.maxOrNull() ?: 0
     }
 
     private fun extractSkillLevels(text: String): List<SkillLevelInfo> {
         val levels = mutableListOf<SkillLevelInfo>()
-        val regex = Regex("""(\d+)[/\s](\d+)""")
-        val mutableText = text.replace(Regex("""[^\d/\s]"""), " ")
-        val matches = regex.findAll(mutableText)
+        // Match both "5/5" and standalone digits like "5", "4"
+        val regex = Regex("""(\d+)(?:/(\d+))?""")
+        val matches = regex.findAll(text).toList()
         matches.forEachIndexed { index, match ->
+            if (index >= 5) return@forEachIndexed // Max 5 skills
             val current = match.groupValues[1].toIntOrNull() ?: 0
             val max = match.groupValues[2].toIntOrNull() ?: 5
             levels.add(SkillLevelInfo(index + 1, current, max, current >= max))
@@ -117,7 +128,6 @@ class ProfileScreenAnalyzer {
     private fun generateProfileRecommendations(heroName: String, level: Int, isMaxLevel: Boolean,
         stats: HeroStatsExtracted, skillLevels: List<SkillLevelInfo>, power: Long): List<String> {
         val recs = mutableListOf<String>()
-        val hero = HeroDatabase.findHeroByName(heroName)
         recs.add("🎯 $heroName Analysis")
         recs.add("Power: ${power.toString().replace(Regex("""(\d)(?=(\d{3})+$)"""), "$1,")}")
         recs.add("")
@@ -143,6 +153,7 @@ class ProfileScreenAnalyzer {
         recs.add("• DEF: ${stats.def.toString().replace(Regex("""(\d)(?=(\d{3})+$)"""), "$1,")}")
         recs.add("• Squad: ${stats.squad.toString().replace(Regex("""(\d)(?=(\d{3})+$)"""), "$1,")}")
 
+        val hero = HeroDatabase.findHeroByName(heroName)
         hero?.let {
             recs.add("")
             recs.add("🎭 ROLE: ${it.role} | ${it.faction}")
