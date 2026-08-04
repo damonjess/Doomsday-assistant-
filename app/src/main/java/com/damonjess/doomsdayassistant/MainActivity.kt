@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Button
@@ -86,7 +87,13 @@ class MainActivity : AppCompatActivity() {
             ScreenCaptureState.mediaProjection = null
             ScreenCaptureState.resultCode = resultCode
             ScreenCaptureState.data = data
-            startService(Intent(this, FloatingButtonService::class.java))
+            
+            val serviceIntent = Intent(this, FloatingButtonService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
             statusText.text = "🟢 Assistant is active!"
         }
     }

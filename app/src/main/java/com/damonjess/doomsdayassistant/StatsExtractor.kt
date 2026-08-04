@@ -1,10 +1,12 @@
 package com.damonjess.doomsdayassistant
 
 import android.graphics.Bitmap
+import android.util.Log
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class StatsExtractor(private val bitmap: Bitmap) {
 
@@ -68,9 +70,19 @@ class StatsExtractor(private val bitmap: Bitmap) {
         var result = ""
         val latch = CountDownLatch(1)
         recognizer.process(input)
-            .addOnSuccessListener { result = it.text; latch.countDown() }
-            .addOnFailureListener { latch.countDown() }
-        latch.await()
+            .addOnSuccessListener { 
+                result = it.text
+                Log.d("DoomsdayCapture", "OCR Success: ${result.take(50)}...")
+                latch.countDown() 
+            }
+            .addOnFailureListener { 
+                Log.e("DoomsdayCapture", "OCR Failed", it)
+                latch.countDown() 
+            }
+        
+        if (!latch.await(5, TimeUnit.SECONDS)) {
+            Log.e("DoomsdayCapture", "OCR Timeout")
+        }
         return result
     }
 }

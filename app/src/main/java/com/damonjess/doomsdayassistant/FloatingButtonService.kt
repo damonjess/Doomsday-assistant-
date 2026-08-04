@@ -1,8 +1,13 @@
 package com.damonjess.doomsdayassistant
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
@@ -23,10 +28,17 @@ class FloatingButtonService : Service() {
     companion object {
         const val MODE_ANALYZE = "analyze"
         const val MODE_SAVE_ARENA = "save_arena"
+        const val ACTION_STOP = "com.damonjess.doomsdayassistant.STOP_FLOATING_BUTTON"
+        private const val NOTIF_ID = 42
+        private const val CHANNEL_ID = "doomsday_overlay"
     }
 
     override fun onCreate() {
         super.onCreate()
+
+        // MUST happen before anything else, and within ~5s of the service starting
+        startForegroundCompat()
+
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
         floatingView = LayoutInflater.from(this).inflate(R.layout.floating_button, null)
@@ -52,6 +64,8 @@ class FloatingButtonService : Service() {
         var touchX = 0f
         var touchY = 0f
         var isDragging = false
+        var longPressTriggered = false
+        var lastTapTime = 0L
         val longPressHandler = Handler(Looper.getMainLooper())
         var longPressRunnable: Runnable? = null
 
@@ -63,25 +77,43 @@ class FloatingButtonService : Service() {
                     touchX = event.rawX
                     touchY = event.rawY
                     isDragging = false
+                    longPressTriggered = false
 
                     longPressRunnable = Runnable {
-                        isDragging = true
-                        showModeMenu(button)
+                        longPressTriggered = true
+                        mode = MODE_SAVE_ARENA
+                        Toast.makeText(this, "💾 Saving hero…", Toast.LENGTH_SHORT).show()
+                        triggerCapture()
                     }
                     longPressHandler.postDelayed(longPressRunnable!!, 600)
                 }
                 MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - touchX
+                    val dy = event.rawY - touchY
+                    if (!longPressTriggered && !isDragging &&
+                        (kotlin.math.abs(dx) > 50 || kotlin.math.abs(dy) > 50)) {
+                        longPressRunnable?.let { longPressHandler.removeCallbacks(it) }
+                        isDragging = true
+                    }
                     if (isDragging) {
-                        params!!.x = initialX + (event.rawX - touchX).toInt()
-                        params!!.y = initialY + (event.rawY - touchY).toInt()
+                        params!!.x = initialX + dx.toInt()
+                        params!!.y = initialY + dy.toInt()
                         windowManager.updateViewLayout(floatingView, params)
                     }
                 }
                 MotionEvent.ACTION_UP -> {
                     longPressRunnable?.let { longPressHandler.removeCallbacks(it) }
-                    if (!isDragging) {
-                        triggerCapture()
+                    if (!isDragging && !longPressTriggered) {
+                        val now = System.currentTimeMillis()
+                        if (now - lastTapTime < 300) {
+                            showModeMenu(button)
+                        } else {
+                            mode = MODE_ANALYZE
+                            triggerCapture()
+                        }
+                        lastTapTime = now
                     }
+                    isDragging = false
                 }
             }
             true
@@ -90,25 +122,53 @@ class FloatingButtonService : Service() {
         windowManager.addView(floatingView, params)
     }
 
+    private fun startForegroundCompat() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID, "Doomsday Overlay", NotificationManager.IMPORTANCE_LOW
+            )
+            getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
+        }
+
+        val stopIntent = Intent(this, FloatingButtonService::class.java).apply {
+            action = ACTION_STOP
+        }
+        val stopPendingIntent = PendingIntent.getService(
+            this, 0, stopIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, CHANNEL_ID)
+        } else {
+            Notification.Builder(this)
+        }
+        val notification = builder
+            .setContentTitle("Doomsday Assistant")
+            .setContentText("Overlay active — tap Stop to close")
+            .setSmallIcon(android.R.drawable.ic_menu_camera)
+            .setOngoing(true)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopPendingIntent)
+            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Special use wasn't a type before 34, so we just use 0 or none if it fits.
+            // Actually, for API 29-33, we can't use specialUse.
+            // If we don't need a specific type, we just pass the notification.
+            startForeground(NOTIF_ID, notification)
+        } else {
+            startForeground(NOTIF_ID, notification)
+        }
+    }
+
     private fun showModeMenu(anchor: View) {
         val popup = PopupMenu(this, anchor)
-        popup.menu.add("🔴 Analyze Screen").setOnMenuItemClickListener {
-            mode = MODE_ANALYZE
-            anchor.setBackgroundResource(R.drawable.floating_button_bg)
-            Toast.makeText(this, "Mode: Analyze", Toast.LENGTH_SHORT).show()
-            true
-        }
-        popup.menu.add("🟢 Save Hero to Arena").setOnMenuItemClickListener {
-            mode = MODE_SAVE_ARENA
-            anchor.setBackgroundColor(android.graphics.Color.parseColor("#4CAF50"))
-            Toast.makeText(this, "Mode: Save to Arena", Toast.LENGTH_SHORT).show()
-            true
-        }
         popup.menu.add("🏟️ Open Arena of Doom").setOnMenuItemClickListener {
-            val intent = Intent(this, ArenaOfDoomActivity::class.java).apply {
+            startActivity(Intent(this, ArenaOfDoomActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            startActivity(intent)
+            })
             true
         }
         popup.menu.add("❌ Close Assistant").setOnMenuItemClickListener {
@@ -126,8 +186,6 @@ class FloatingButtonService : Service() {
             return
         }
 
-        Toast.makeText(this, if (mode == MODE_SAVE_ARENA) "💾 Saving hero…" else "🔍 Analyzing…", Toast.LENGTH_SHORT).show()
-
         val captureIntent = Intent(this, ScreenCaptureService::class.java).apply {
             putExtra(ScreenCaptureService.EXTRA_MODE, mode)
         }
@@ -135,6 +193,10 @@ class FloatingButtonService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         return START_STICKY
     }
 

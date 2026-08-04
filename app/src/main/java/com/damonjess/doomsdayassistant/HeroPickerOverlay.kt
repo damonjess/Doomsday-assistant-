@@ -1,5 +1,8 @@
 package com.damonjess.doomsdayassistant
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.graphics.PixelFormat
@@ -17,6 +20,11 @@ class HeroPickerOverlay : Service() {
     private var selectedHero: Hero? = null
     private var gameStats: StatsExtractor.GameStats? = null
 
+    companion object {
+        private const val NOTIF_ID = 101
+        private const val CHANNEL_ID = "doomsday_picker"
+    }
+
     override fun onCreate() {
         super.onCreate()
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
@@ -24,6 +32,8 @@ class HeroPickerOverlay : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        startForeground(NOTIF_ID, buildNotification())
+        
         val level = intent?.getIntExtra("level", 0) ?: 0
         val power = intent?.getLongExtra("power", 0) ?: 0
         val stars = intent?.getIntExtra("stars", 0) ?: 0
@@ -135,9 +145,35 @@ class HeroPickerOverlay : Service() {
         Toast.makeText(this, "✅ ${hero.name} saved!\nRoster: ${storage.getRosterSize()} heroes", Toast.LENGTH_LONG).show()
     }
 
+    private fun buildNotification(): Notification {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(CHANNEL_ID, "Hero Picker", NotificationManager.IMPORTANCE_LOW)
+            getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
+        }
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, CHANNEL_ID)
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+        }
+        return builder
+            .setContentTitle("Doomsday Hero Picker")
+            .setContentText("Select a hero to save")
+            .setSmallIcon(android.R.drawable.ic_menu_add)
+            .build()
+    }
+
     private fun closeOverlay() {
-        overlayView?.let { wm.removeView(it) }
+        overlayView?.let { 
+            try { wm.removeView(it) } catch (_: Exception) {}
+        }
         overlayView = null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
         stopSelf()
     }
 

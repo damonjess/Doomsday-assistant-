@@ -6,9 +6,11 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
+import android.util.Log
 import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
 import android.media.projection.MediaProjection
@@ -45,9 +47,14 @@ class ScreenCaptureService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(NOTIF_ID, buildNotification())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIF_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+        } else {
+            startForeground(NOTIF_ID, buildNotification())
+        }
 
         val mode = intent?.getStringExtra(EXTRA_MODE) ?: MODE_ANALYZE
+        Log.d("DoomsdayCapture", "Service started in mode: $mode")
 
         // Lazy-init MediaProjection once per session
         if (ScreenCaptureState.mediaProjection == null) {
@@ -89,6 +96,7 @@ class ScreenCaptureService : Service() {
     private fun doCapture(mode: String) {
         val projection = ScreenCaptureState.mediaProjection
         if (projection == null) {
+            Log.e("DoomsdayCapture", "MediaProjection is null")
             toast("❌ MediaProjection lost. Restart the assistant.")
             return
         }
@@ -100,6 +108,7 @@ class ScreenCaptureService : Service() {
         val w = metrics.widthPixels
         val h = metrics.heightPixels
         val density = metrics.densityDpi
+        Log.d("DoomsdayCapture", "Screen size: ${w}x${h}, density: $density")
 
         imageReader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
         virtualDisplay = projection.createVirtualDisplay(
@@ -113,9 +122,11 @@ class ScreenCaptureService : Service() {
 
         val bitmap = captureScreen()
         if (bitmap == null) {
+            Log.e("DoomsdayCapture", "Bitmap capture failed")
             toast("❌ Failed to capture screen")
             return
         }
+        Log.d("DoomsdayCapture", "Bitmap captured: ${bitmap.width}x${bitmap.height}")
 
         when (mode) {
             MODE_SAVE_ARENA -> saveHero(bitmap)

@@ -2,6 +2,7 @@ package com.damonjess.doomsdayassistant
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -16,14 +17,16 @@ class HeroCaptureStorage(context: Context) {
     }
 
     fun saveHero(hero: CapturedHero): Boolean {
+        Log.d("DoomsdayCapture", "Saving hero to storage: ${hero.name}")
         val roster = getAllHeroes().toMutableList()
         roster.removeAll { it.heroId == hero.heroId }
         roster.add(hero)
         while (roster.size > MAX_ROSTER_SIZE) {
             roster.removeAt(0)
         }
-        saveRoster(roster)
-        return true
+        val success = saveRoster(roster)
+        Log.d("DoomsdayCapture", "Hero save status: $success. Roster size: ${roster.size}")
+        return success
     }
 
     fun removeHero(captureId: String) {
@@ -43,19 +46,19 @@ class HeroCaptureStorage(context: Context) {
     fun getRosterSize(): Int = getAllHeroes().size
 
     fun clearRoster() {
-        prefs.edit().remove(KEY_ROSTER).apply()
+        prefs.edit().remove(KEY_ROSTER).commit()
     }
 
     fun hasHero(heroId: String): Boolean {
         return getAllHeroes().any { it.heroId == heroId }
     }
 
-    private fun saveRoster(roster: List<CapturedHero>) {
+    private fun saveRoster(roster: List<CapturedHero>): Boolean {
         val jsonArray = JSONArray()
         roster.forEach { hero ->
             jsonArray.put(heroToJson(hero))
         }
-        prefs.edit().putString(KEY_ROSTER, jsonArray.toString()).apply()
+        return prefs.edit().putString(KEY_ROSTER, jsonArray.toString()).commit()
     }
 
     private fun parseRoster(jsonStr: String): List<CapturedHero> {
