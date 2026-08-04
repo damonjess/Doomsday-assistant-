@@ -32,9 +32,12 @@ class ScreenCaptureService : Service() {
     private var imageReader: ImageReader? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var storage: HeroCaptureStorage
+    private var isInitialized = false
 
     companion object {
         const val EXTRA_MODE = "capture_mode"
+        const val ACTION_CAPTURE = "com.damonjess.doomsdayassistant.CAPTURE"
+        const val ACTION_STOP = "com.damonjess.doomsdayassistant.STOP_CAPTURE"
         const val MODE_ANALYZE = "analyze"
         const val MODE_SAVE_ARENA = "save_arena"
         private const val NOTIF_ID = 1337
@@ -47,6 +50,11 @@ class ScreenCaptureService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) {
+            stopMe()
+            return START_NOT_STICKY
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIF_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
         } else {
@@ -54,61 +62,68 @@ class ScreenCaptureService : Service() {
         }
 
         val mode = intent?.getStringExtra(EXTRA_MODE) ?: MODE_ANALYZE
-        Log.d("DoomsdayCapture", "Service started in mode: $mode")
+        Log.d("DoomsdayCapture", "Service command received. Action: ${intent?.action}, Mode: $mode")
 
-        // Lazy-init MediaProjection once per session
-        if (ScreenCaptureState.mediaProjection == null) {
-            val rc = ScreenCaptureState.resultCode
-            val d = ScreenCaptureState.data
-            if (rc == -1 || d == null) {
-                toast("⚠️ Start the assistant from the app first!")
-                stopMe()
-                return START_NOT_STICKY
-            }
-            val mgr = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            ScreenCaptureState.mediaProjection = mgr.getMediaProjection(rc, d)
-            toast("🎥 Screen capture ready")
+        if (!isInitialized) {
+            initProjection()
         }
 
-        val worker = HandlerThread("DoomsdayCapture", Process.THREAD_PRIORITY_BACKGROUND)
-        worker.start()
-        val bg = Handler(worker.looper)
-
-        bg.post {
-            try {
-                doCapture(mode)
-            } catch (e: Exception) {
-                toast("❌ Error: ${e.message}")
-                e.printStackTrace()
-            } finally {
-                // Only release VirtualDisplay + ImageReader, NOT MediaProjection
-                try { virtualDisplay?.release() } catch (_: Exception) {}
-                try { imageReader?.close() } catch (_: Exception) {}
-                worker.quitSafely()
-                stopForeground(true)
-                stopSelf()
+        if (intent?.action == ACTION_CAPTURE) {
+            val worker = HandlerThread("DoomsdayCapture", Process.THREAD_PRIORITY_BACKGROUND)
+            worker.start()
+            val bg = Handler(worker.looper)
+            bg.post {
+                try {
+                    val bitmap = captureScreen()
+                    if (bitmap != null) {
+                        Log.d("DoomsdayCapture", "Bitmap captured: ${bitmap.width}x${bitmap.height}")
+                        mainHandler.post {
+                            when (mode) {
+                                MODE_SAVE_ARENA -> saveHero(bitmap)
+                                else -> analyzeScreen(bitmap)
+                            }
+                        }
+                    } else {
+                        Log.e("DoomsdayCapture", "Bitmap capture failed")
+                        toast("❌ Failed to capture screen")
+                    }
+                } catch (e: Exception) {
+                    Log.e("DoomsdayCapture", "Capture error", e)
+                    toast("❌ Error: ${e.message}")
+                } finally {
+                    worker.quitSafely()
+                }
             }
         }
 
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
-    private fun doCapture(mode: String) {
+    private fun initProjection() {
         val projection = ScreenCaptureState.mediaProjection
         if (projection == null) {
-            Log.e("DoomsdayCapture", "MediaProjection is null")
-            toast("❌ MediaProjection lost. Restart the assistant.")
+            Log.e("DoomsdayCapture", "Cannot init: MediaProjection is null")
             return
         }
 
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val metrics = DisplayMetrics()
         wm.defaultDisplay.getRealMetrics(metrics)
-
         val w = metrics.widthPixels
         val h = metrics.heightPixels
         val density = metrics.densityDpi
-        Log.d("DoomsdayCapture", "Screen size: ${w}x${h}, density: $density")
+
+        // One-time registration of the mandatory callback for Android 14+
+        projection.registerCallback(object : MediaProjection.Callback() {
+            override fun onStop() {
+                Log.d("DoomsdayCapture", "MediaProjection session stopped")
+                isInitialized = false
+                virtualDisplay?.release()
+                virtualDisplay = null
+                imageReader?.close()
+                imageReader = null
+            }
+        }, mainHandler)
 
         imageReader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
         virtualDisplay = projection.createVirtualDisplay(
@@ -117,40 +132,32 @@ class ScreenCaptureService : Service() {
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             imageReader?.surface, null, null
         )
-
-        Thread.sleep(600)
-
-        val bitmap = captureScreen()
-        if (bitmap == null) {
-            Log.e("DoomsdayCapture", "Bitmap capture failed")
-            toast("❌ Failed to capture screen")
-            return
-        }
-        Log.d("DoomsdayCapture", "Bitmap captured: ${bitmap.width}x${bitmap.height}")
-
-        when (mode) {
-            MODE_SAVE_ARENA -> saveHero(bitmap)
-            else -> analyzeScreen(bitmap)
-        }
+        
+        isInitialized = true
+        Log.d("DoomsdayCapture", "Projection and VirtualDisplay initialized")
     }
 
     private fun captureScreen(): Bitmap? {
+        // We use acquireLatestImage to get the most recent frame. 
+        // We MUST close it immediately after copying to avoid "image is already closed" or memory leaks.
         val image = imageReader?.acquireLatestImage() ?: return null
-        val planes = image.planes
-        val buffer = planes[0].buffer
-        val pixelStride = planes[0].pixelStride
-        val rowStride = planes[0].rowStride
-        val rowPadding = rowStride - pixelStride * image.width
+        try {
+            val planes = image.planes
+            val buffer = planes[0].buffer
+            val pixelStride = planes[0].pixelStride
+            val rowStride = planes[0].rowStride
+            val rowPadding = rowStride - pixelStride * image.width
 
-        val bitmap = Bitmap.createBitmap(
-            image.width + rowPadding / pixelStride,
-            image.height,
-            Bitmap.Config.ARGB_8888
-        )
-        bitmap.copyPixelsFromBuffer(buffer)
-        image.close()
-
-        return Bitmap.createBitmap(bitmap, 0, 0, image.width, image.height)
+            val bitmap = Bitmap.createBitmap(
+                image.width + rowPadding / pixelStride,
+                image.height,
+                Bitmap.Config.ARGB_8888
+            )
+            bitmap.copyPixelsFromBuffer(buffer)
+            return Bitmap.createBitmap(bitmap, 0, 0, image.width, image.height)
+        } finally {
+            image.close()
+        }
     }
 
     private fun analyzeScreen(bitmap: Bitmap) {
@@ -208,7 +215,19 @@ class ScreenCaptureService : Service() {
     }
 
     private fun stopMe() {
-        stopForeground(true)
+        isInitialized = false
+        virtualDisplay?.release()
+        virtualDisplay = null
+        imageReader?.close()
+        imageReader = null
+        ScreenCaptureState.mediaProjection?.stop()
+        ScreenCaptureState.mediaProjection = null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
         stopSelf()
     }
 

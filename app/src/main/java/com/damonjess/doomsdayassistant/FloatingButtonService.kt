@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.util.Log
 import android.view.*
 import android.widget.ImageButton
 import android.widget.PopupMenu
@@ -181,12 +182,16 @@ class FloatingButtonService : Service() {
     private fun triggerCapture() {
         val stateCode = ScreenCaptureState.resultCode
         val stateData = ScreenCaptureState.data
-        if (stateCode == -1 || stateData == null) {
+        Log.d("DoomsdayCapture", "Triggering capture. StateCode: $stateCode, Data present: ${stateData != null}")
+        
+        // resultCode -1 is Activity.RESULT_OK. 
+        if (stateCode != -1 || stateData == null) {
             Toast.makeText(this, "⚠️ Start the assistant from the app first!", Toast.LENGTH_SHORT).show()
             return
         }
 
         val captureIntent = Intent(this, ScreenCaptureService::class.java).apply {
+            action = ScreenCaptureService.ACTION_CAPTURE
             putExtra(ScreenCaptureService.EXTRA_MODE, mode)
         }
         startService(captureIntent)
@@ -194,6 +199,10 @@ class FloatingButtonService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            val stopCaptureIntent = Intent(this, ScreenCaptureService::class.java).apply {
+                action = ScreenCaptureService.ACTION_STOP
+            }
+            startService(stopCaptureIntent)
             stopSelf()
             return START_NOT_STICKY
         }

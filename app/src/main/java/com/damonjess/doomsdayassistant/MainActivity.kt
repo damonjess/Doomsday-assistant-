@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -82,11 +83,24 @@ class MainActivity : AppCompatActivity() {
         if (requestCode == REQUEST_OVERLAY) {
             updateUI()
         } else if (requestCode == REQUEST_SCREEN_CAPTURE && resultCode == RESULT_OK && data != null) {
-            // Reset any old projection so we get a fresh token
+            Log.d("DoomsdayCapture", "Screen capture permission granted. ResultCode: $resultCode")
+            
+            // Initialize MediaProjection IMMEDIATELY. Android 14+ only allows using the Intent data once.
+            val mgr = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            val projection = mgr.getMediaProjection(resultCode, data)
+            
             ScreenCaptureState.mediaProjection?.stop()
-            ScreenCaptureState.mediaProjection = null
+            ScreenCaptureState.mediaProjection = projection
             ScreenCaptureState.resultCode = resultCode
             ScreenCaptureState.data = data
+            
+            // Start the ScreenCaptureService immediately so it stays alive
+            val captureServiceIntent = Intent(this, ScreenCaptureService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(captureServiceIntent)
+            } else {
+                startService(captureServiceIntent)
+            }
             
             val serviceIntent = Intent(this, FloatingButtonService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
