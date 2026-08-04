@@ -1,167 +1,178 @@
 package com.damonjess.doomsdayassistant
 
-import android.app.*
+import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
+import android.media.Image
 import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
-import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.DisplayMetrics
 import android.view.WindowManager
-import androidx.core.app.NotificationCompat
+import android.widget.Toast
+import java.nio.ByteBuffer
+import java.util.UUID
 
 class ScreenCaptureService : Service() {
 
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
-    
-    private lateinit var projectionManager: MediaProjectionManager
-    private lateinit var windowManager: WindowManager
-    
-    private var resultCode: Int = 0
-    private lateinit var resultData: Intent
+    private val handler = Handler(Looper.getMainLooper())
+    private lateinit var storage: HeroCaptureStorage
 
     companion object {
-        var staticResultCode: Int = 0
-        var staticResultData: Intent? = null
+        const val EXTRA_MODE = "capture_mode"
+        const val MODE_ANALYZE = "analyze"
+        const val MODE_SAVE_ARENA = "save_arena"
+        const val EXTRA_RESULT_CODE = "result_code"
+        const val EXTRA_DATA = "data"
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    override fun onCreate() {
+        super.onCreate()
+        storage = HeroCaptureStorage(this)
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent == null) return START_NOT_STICKY
+        val mode = intent?.getStringExtra(EXTRA_MODE) ?: MODE_ANALYZE
+        val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, -1) ?: -1
+        val data = intent?.getParcelableExtra<android.content.Intent>(EXTRA_DATA)
 
-        val action = intent.action
-        if (action == "ACTION_INIT") {
-            resultCode = intent.getIntExtra("EXTRA_RESULT_CODE", 0)
-            resultData = intent.getParcelableExtra("EXTRA_DATA") ?: return START_NOT_STICKY
-            staticResultCode = resultCode
-            staticResultData = resultData
-            
-            createNotificationChannel()
-            startForeground(2, createNotification())
-        } else if (action == "ACTION_ANALYZE" || action == "ACTION_SAVE_HERO") {
-            captureAndProcess(action == "ACTION_SAVE_HERO")
+        if (resultCode == -1 || data == null) {
+            stopSelf()
+            return START_NOT_STICKY
         }
 
-        return START_NOT_STICKY
-    }
+        val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        mediaProjection = projectionManager.getMediaProjection(resultCode, data)
 
-    private fun captureAndProcess(saveToArena: Boolean) {
+        val windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val metrics = DisplayMetrics()
-        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         windowManager.defaultDisplay.getRealMetrics(metrics)
-        
+
         val width = metrics.widthPixels
         val height = metrics.heightPixels
         val density = metrics.densityDpi
 
-        projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        mediaProjection = projectionManager.getMediaProjection(staticResultCode, staticResultData!!)
-
         imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
         virtualDisplay = mediaProjection?.createVirtualDisplay(
-            "ScreenCapture", width, height, density,
+            "DoomsdayCapture",
+            width, height, density,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             imageReader?.surface, null, null
         )
 
-        Handler(Looper.getMainLooper()).postDelayed({
-            val image = imageReader?.acquireLatestImage()
-            if (image != null) {
-                val planes = image.planes
-                val buffer = planes[0].buffer
-                val pixelStride = planes[0].pixelStride
-                val rowStride = planes[0].rowStride
-                val rowPadding = rowStride - pixelStride * width
-                
-                val bitmap = Bitmap.createBitmap(
-                    width + rowPadding / pixelStride,
-                    height, Bitmap.Config.ARGB_8888
-                )
-                bitmap.copyPixelsFromBuffer(buffer)
-                image.close()
-
-                val analyzer = HeroAnalyzer()
-                val result = analyzer.analyze(bitmap)
-
-                if (result != null) {
-                    if (saveToArena) {
-                        saveHeroToRoster(result)
-                    } else {
-                        showResults(result)
-                    }
+        handler.postDelayed({
+            val bitmap = captureScreen()
+            if (bitmap != null) {
+                when (mode) {
+                    MODE_SAVE_ARENA -> saveHeroToArena(bitmap)
+                    else -> analyzeScreen(bitmap)
                 }
-
-                stopCapture()
             }
-        }, 500)
+            stopSelf()
+        }, 800)
+
+        return START_NOT_STICKY
     }
 
-    private fun saveHeroToRoster(result: AnalysisResult) {
-        val hero = result.hero ?: return
-        val storage = HeroCaptureStorage(this)
-        val capturedHero = CapturedHero(
-            id = java.util.UUID.randomUUID().toString(),
+    private fun captureScreen(): Bitmap? {
+        val image = imageReader?.acquireLatestImage() ?: return null
+        val planes = image.planes
+        val buffer = planes[0].buffer
+        val pixelStride = planes[0].pixelStride
+        val rowStride = planes[0].rowStride
+        val rowPadding = rowStride - pixelStride * image.width
+
+        val bitmap = Bitmap.createBitmap(
+            image.width + rowPadding / pixelStride,
+            image.height,
+            Bitmap.Config.ARGB_8888
+        )
+        bitmap.copyPixelsFromBuffer(buffer)
+        image.close()
+
+        return Bitmap.createBitmap(bitmap, 0, 0, image.width, image.height)
+    }
+
+    private fun analyzeScreen(bitmap: Bitmap) {
+        val dispatcher = AnalysisDispatcher(this)
+        val result = dispatcher.analyze(bitmap)
+
+        val overlayIntent = Intent(this, ResultsOverlayService::class.java).apply {
+            putExtra("screen_type", result.screenType.name)
+            putExtra("title", result.title)
+            putExtra("priority_score", result.priorityScore)
+            putStringArrayListExtra("sections_headers", ArrayList(result.sections.map { it.header }))
+            val items = result.sections.map { it.items.joinToString("\n") }
+            putStringArrayListExtra("sections_items", ArrayList(items))
+        }
+        startService(overlayIntent)
+    }
+
+    private fun saveHeroToArena(bitmap: Bitmap) {
+        val dispatcher = AnalysisDispatcher(this)
+        val result = dispatcher.analyze(bitmap)
+
+        if (result.screenType != ScreenType.HERO_PROFILE) {
+            handler.post {
+                Toast.makeText(this, "❌ Not a hero profile screen!", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+
+        val profileAnalyzer = ProfileScreenAnalyzer()
+        val profile = profileAnalyzer.analyze(bitmap, "")
+
+        val hero = HeroDatabase.findHeroByName(profile.heroName)
+        if (hero == null) {
+            handler.post {
+                Toast.makeText(this, "❌ Could not identify hero: ${profile.heroName}", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+
+        val captured = CapturedHero(
+            id = UUID.randomUUID().toString(),
             heroId = hero.id,
             name = hero.name,
             rarity = hero.rarity,
             role = hero.role,
             faction = hero.faction,
-            level = result.detectedLevel ?: 1,
-            stars = 0,
-            power = 0,
-            stats = hero.baseStats,
-            skillLevels = emptyList()
+            level = profile.level,
+            stars = profile.stars,
+            power = profile.power,
+            stats = HeroStats(
+                attack = profile.stats.dmg,
+                defense = profile.stats.def,
+                hp = profile.stats.hp,
+                speed = 100,
+                critRate = 0.1f,
+                critDamage = 1.5f
+            ),
+            skillLevels = profile.skillLevels.map { it.current }
         )
-        storage.saveHero(capturedHero)
-        
-        // Broadcast or toast?
-    }
 
-    private fun showResults(result: AnalysisResult) {
-        val intent = Intent(this, ResultsOverlayService::class.java).apply {
-            // In a real app, we'd pass data via a singleton or parcelable
-            ResultsOverlayService.currentResult = result
+        storage.saveHero(captured)
+        handler.post {
+            Toast.makeText(this, "✅ ${hero.name} saved to Arena roster!", Toast.LENGTH_SHORT).show()
         }
-        startService(intent)
     }
 
-    private fun stopCapture() {
+    override fun onDestroy() {
         virtualDisplay?.release()
-        virtualDisplay = null
         imageReader?.close()
-        imageReader = null
         mediaProjection?.stop()
-        mediaProjection = null
+        super.onDestroy()
     }
 
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                "capture_service",
-                "Screen Capture",
-                NotificationManager.IMPORTANCE_LOW
-            )
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
-        }
-    }
-
-    private fun createNotification(): Notification {
-        return NotificationCompat.Builder(this, "capture_service")
-            .setContentTitle("Doomsday Screen Capture")
-            .setContentText("Capturing hero data...")
-            .setSmallIcon(android.R.drawable.ic_menu_camera)
-            .build()
-    }
+    override fun onBind(intent: Intent?): IBinder? = null
 }

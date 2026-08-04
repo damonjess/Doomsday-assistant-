@@ -1,34 +1,55 @@
 package com.damonjess.doomsdayassistant
 
-import android.annotation.SuppressLint
-import android.app.*
+import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.PixelFormat
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.view.*
 import android.widget.ImageButton
-import androidx.core.app.NotificationCompat
-import kotlin.math.abs
+import android.widget.PopupMenu
+import android.widget.Toast
+import androidx.core.content.ContextCompat
 
 class FloatingButtonService : Service() {
 
     private lateinit var windowManager: WindowManager
-    private lateinit var floatingView: View
-    private lateinit var params: WindowManager.LayoutParams
-    
-    private var isAnalysisMode = true // true: Analysis, false: Save to Arena
+    private var floatingView: View? = null
+    private var params: WindowManager.LayoutParams? = null
+    private var mode = MODE_ANALYZE
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    companion object {
+        const val MODE_ANALYZE = "analyze"
+        const val MODE_SAVE_ARENA = "save_arena"
+        const val EXTRA_RESULT_CODE = "result_code"
+        const val EXTRA_DATA = "data"
+    }
+
+    private var resultCode: Int = -1
+    private var data: Intent? = null
+
+    private val receiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "SET_PROJECTION_DATA") {
+                resultCode = intent.getIntExtra("result_code", -1)
+                data = intent.getParcelableExtra("data")
+            }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
-        startForeground(1, createNotification())
+        windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
-        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        ContextCompat.registerReceiver(this, receiver, IntentFilter("SET_PROJECTION_DATA"), ContextCompat.RECEIVER_NOT_EXPORTED)
+
         floatingView = LayoutInflater.from(this).inflate(R.layout.floating_button, null)
+        val button = floatingView?.findViewById<ImageButton>(R.id.floating_button)
 
         params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -36,109 +57,115 @@ class FloatingButtonService : Service() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             else
+                @Suppress("DEPRECATION")
                 WindowManager.LayoutParams.TYPE_PHONE,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
-        )
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = 100
+            y = 200
+        }
 
-        params.gravity = Gravity.TOP or Gravity.START
-        params.x = 0
-        params.y = 100
+        var initialX = 0
+        var initialY = 0
+        var touchX = 0f
+        var touchY = 0f
+        var isDragging = false
+        val longPressHandler = Handler(Looper.getMainLooper())
+        var longPressRunnable: Runnable? = null
 
-        windowManager.addView(floatingView, params)
+        button?.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    initialX = params!!.x
+                    initialY = params!!.y
+                    touchX = event.rawX
+                    touchY = event.rawY
+                    isDragging = false
 
-        setupFloatingButton()
-    }
-
-    @SuppressLint("ClickableViewAccessibility")
-    private fun setupFloatingButton() {
-        val button = floatingView.findViewById<ImageButton>(R.id.floating_button)
-
-        button.setOnLongClickListener {
-            toggleMode()
+                    longPressRunnable = Runnable {
+                        isDragging = true
+                        showModeMenu(button)
+                    }
+                    longPressHandler.postDelayed(longPressRunnable!!, 600)
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (isDragging) {
+                        params!!.x = initialX + (event.rawX - touchX).toInt()
+                        params!!.y = initialY + (event.rawY - touchY).toInt()
+                        windowManager.updateViewLayout(floatingView, params)
+                    }
+                }
+                MotionEvent.ACTION_UP -> {
+                    longPressRunnable?.let { longPressHandler.removeCallbacks(it) }
+                    if (!isDragging) {
+                        triggerCapture()
+                    }
+                }
+            }
             true
         }
 
-        button.setOnTouchListener(object : View.OnTouchListener {
-            private var initialX: Int = 0
-            private var initialY: Int = 0
-            private var initialTouchX: Float = 0f
-            private var initialTouchY: Float = 0f
-            private var isMoving = false
+        windowManager.addView(floatingView, params)
+    }
 
-            override fun onTouch(v: View, event: MotionEvent): Boolean {
-                when (event.action) {
-                    MotionEvent.ACTION_DOWN -> {
-                        initialX = params.x
-                        initialY = params.y
-                        initialTouchX = event.rawX
-                        initialTouchY = event.rawY
-                        isMoving = false
-                        return false // Allow click listener to trigger
-                    }
-                    MotionEvent.ACTION_MOVE -> {
-                        val dx = event.rawX - initialTouchX
-                        val dy = event.rawY - initialTouchY
-                        if (abs(dx) > 10 || abs(dy) > 10) {
-                            isMoving = true
-                            params.x = initialX + dx.toInt()
-                            params.y = initialY + dy.toInt()
-                            windowManager.updateViewLayout(floatingView, params)
-                        }
-                        return isMoving
-                    }
-                    MotionEvent.ACTION_UP -> {
-                        if (!isMoving) {
-                            performAction()
-                        }
-                        return isMoving
-                    }
-                }
-                return false
+    private fun showModeMenu(anchor: View) {
+        val popup = PopupMenu(this, anchor)
+        popup.menu.add("🔴 Analyze Screen").setOnMenuItemClickListener {
+            mode = MODE_ANALYZE
+            anchor.setBackgroundResource(R.drawable.floating_button_bg)
+            Toast.makeText(this, "Mode: Analyze", Toast.LENGTH_SHORT).show()
+            true
+        }
+        popup.menu.add("🟢 Save Hero to Arena").setOnMenuItemClickListener {
+            mode = MODE_SAVE_ARENA
+            anchor.setBackgroundColor(android.graphics.Color.parseColor("#4CAF50"))
+            Toast.makeText(this, "Mode: Save to Arena", Toast.LENGTH_SHORT).show()
+            true
+        }
+        popup.menu.add("🏟️ Open Arena of Doom").setOnMenuItemClickListener {
+            val intent = Intent(this, ArenaOfDoomActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
-        })
-    }
-
-    private fun toggleMode() {
-        isAnalysisMode = !isAnalysisMode
-        val button = floatingView.findViewById<ImageButton>(R.id.floating_button)
-        if (isAnalysisMode) {
-            button.setImageResource(android.R.drawable.ic_menu_info_details)
-            // Feedback for mode change?
-        } else {
-            button.setImageResource(android.R.drawable.ic_menu_save)
+            startActivity(intent)
+            true
         }
-    }
-
-    private fun performAction() {
-        val intent = Intent(this, ScreenCaptureService::class.java).apply {
-            action = if (isAnalysisMode) "ACTION_ANALYZE" else "ACTION_SAVE_HERO"
+        popup.menu.add("❌ Close Assistant").setOnMenuItemClickListener {
+            stopSelf()
+            true
         }
-        startService(intent)
+        popup.show()
     }
 
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                "floating_service",
-                "Floating Assistant",
-                NotificationManager.IMPORTANCE_LOW
-            )
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
+    private fun triggerCapture() {
+        if (resultCode == -1 || data == null) {
+            Toast.makeText(this, "⚠️ Start the assistant from the app first!", Toast.LENGTH_SHORT).show()
+            return
         }
+
+        val captureIntent = Intent(this, ScreenCaptureService::class.java).apply {
+            putExtra(ScreenCaptureService.EXTRA_MODE, mode)
+            putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, resultCode)
+            putExtra(ScreenCaptureService.EXTRA_DATA, data)
+        }
+        startService(captureIntent)
     }
 
-    private fun createNotification(): Notification {
-        return NotificationCompat.Builder(this, "floating_service")
-            .setContentTitle("Doomsday Assistant Active")
-            .setContentText("Tap floating button to analyze screen")
-            .setSmallIcon(android.R.drawable.ic_menu_info_details)
-            .build()
+    fun setMediaProjectionData(resultCode: Int, data: Intent) {
+        this.resultCode = resultCode
+        this.data = data
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        return START_STICKY
     }
 
     override fun onDestroy() {
+        unregisterReceiver(receiver)
+        floatingView?.let { windowManager.removeView(it) }
         super.onDestroy()
-        if (::floatingView.isInitialized) windowManager.removeView(floatingView)
     }
+
+    override fun onBind(intent: Intent?): IBinder? = null
 }
